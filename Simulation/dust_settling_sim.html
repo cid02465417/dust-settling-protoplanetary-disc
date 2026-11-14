@@ -1,0 +1,640 @@
+<meta charset="utf-8">
+<meta name="claude:viewport-fit-sides" content="cover">
+<title>Dust Settling Simulator</title>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600&family=Space+Grotesk:wght@500;600&display=swap">
+<style>
+/* Layout: controls rail on the left; on the right a disc cross-section and its
+   vertical profile share one z/H axis, with the midplane history underneath. */
+:root {
+  --bg: #f2f3f8;
+  --surface: #ffffff;
+  --fg: #171a2b;
+  --muted: #5a5f78;
+  --line: #d8dbe8;
+  --accent: #a85d08;
+  --accent-soft: rgba(168, 93, 8, 0.16);
+  --gasline: #3f5fd0;
+  --sky: #080a18;
+  --sky-gas: 96, 120, 255;
+  --sky-dust: 255, 176, 72;
+  --sky-grain: #ffe6bd;
+  --sky-text: #aab0d0;
+  --font-display: "Space Grotesk", "Inter", system-ui, sans-serif;
+  --font-body: "Inter", system-ui, -apple-system, "Segoe UI", sans-serif;
+}
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) {
+    --bg: #0d0f1e; --surface: #161930; --fg: #e9eaf3; --muted: #9a9fba; --line: #2b2f4b;
+    --accent: #f0a93b; --accent-soft: rgba(240, 169, 59, 0.18); --gasline: #8ea6ff;
+    color-scheme: dark;
+  }
+}
+:root[data-theme="dark"] {
+  --bg: #0d0f1e; --surface: #161930; --fg: #e9eaf3; --muted: #9a9fba; --line: #2b2f4b;
+  --accent: #f0a93b; --accent-soft: rgba(240, 169, 59, 0.18); --gasline: #8ea6ff;
+  color-scheme: dark;
+}
+
+* { box-sizing: border-box; }
+body {
+  background: var(--bg); color: var(--fg);
+  font-family: var(--font-body); font-size: 15px; line-height: 1.5;
+  padding-block: 28px 48px;
+  padding-left: max(16px, env(safe-area-inset-left, 0px));
+  padding-right: max(16px, env(safe-area-inset-right, 0px));
+}
+.page { max-width: 1180px; margin: 0 auto; display: flex; flex-direction: column; gap: 22px; }
+
+header { display: flex; flex-direction: column; gap: 6px; }
+.eyebrow { font-size: 12px; letter-spacing: 0.09em; text-transform: uppercase; color: var(--muted); font-weight: 600; }
+h1 { font-family: var(--font-display); font-weight: 600; font-size: clamp(26px, 4vw, 36px); line-height: 1.1; margin: 0; text-wrap: balance; }
+.lede { margin: 0; color: var(--muted); max-width: 65ch; }
+
+.layout { display: grid; grid-template-columns: 290px minmax(0, 1fr); gap: 22px; align-items: start; }
+@media (max-width: 860px) { .layout { grid-template-columns: minmax(0, 1fr); } }
+
+/* controls */
+.controls { display: flex; flex-direction: column; gap: 18px; background: var(--surface); border: 1px solid var(--line); border-radius: 10px; padding: 18px; }
+.group { display: flex; flex-direction: column; gap: 8px; }
+.group-title { font-size: 12px; letter-spacing: 0.08em; text-transform: uppercase; color: var(--muted); font-weight: 600; }
+.presets { display: grid; grid-template-columns: 1fr 1fr; gap: 6px; }
+button { font: inherit; color: var(--fg); cursor: pointer; }
+.chip { background: transparent; border: 1px solid var(--line); border-radius: 6px; padding: 6px 8px; text-align: left; font-size: 13px; line-height: 1.25; }
+.chip small { display: block; color: var(--muted); font-size: 11.5px; }
+.chip:hover { border-color: var(--muted); }
+.chip[aria-pressed="true"] { border-color: var(--accent); background: var(--accent-soft); }
+.field { display: flex; flex-direction: column; gap: 2px; }
+.field-head { display: flex; justify-content: space-between; align-items: baseline; gap: 8px; font-size: 13.5px; }
+.field-head output { font-variant-numeric: tabular-nums; font-weight: 600; white-space: nowrap; }
+input[type="range"] { width: 100%; accent-color: var(--accent); margin: 4px 0; }
+.check { display: flex; align-items: center; gap: 8px; font-size: 13.5px; }
+.check input { accent-color: var(--accent); width: 16px; height: 16px; margin: 0; }
+.seg { display: inline-flex; border: 1px solid var(--line); border-radius: 6px; overflow: hidden; }
+.seg button { background: transparent; border: 0; padding: 5px 11px; font-size: 13px; border-right: 1px solid var(--line); }
+.seg button:last-child { border-right: 0; }
+.seg button[aria-pressed="true"] { background: var(--accent-soft); color: var(--fg); font-weight: 600; }
+.row { display: flex; justify-content: space-between; align-items: center; gap: 10px; flex-wrap: wrap; font-size: 13.5px; }
+.transport { display: flex; gap: 8px; }
+.btn { border: 1px solid var(--line); background: transparent; border-radius: 6px; padding: 8px 14px; font-weight: 600; font-size: 14px; }
+.btn.primary { background: var(--accent); border-color: var(--accent); color: var(--surface); flex: 1; }
+.btn:hover { border-color: var(--muted); }
+:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+.disabled { opacity: 0.45; }
+
+/* stage */
+.stage { display: flex; flex-direction: column; gap: 16px; min-width: 0; }
+.stats { display: grid; grid-template-columns: repeat(5, minmax(0, 1fr)); gap: 0; border: 1px solid var(--line); border-radius: 10px; background: var(--surface); }
+.stat { padding: 12px 14px; border-right: 1px solid var(--line); min-width: 0; }
+.stat:last-child { border-right: 0; }
+.stat dt { font-size: 11.5px; letter-spacing: 0.07em; text-transform: uppercase; color: var(--muted); font-weight: 600; }
+.stat dd { margin: 2px 0 0; font-family: var(--font-display); font-size: 21px; font-weight: 600; font-variant-numeric: tabular-nums; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.stats, .stat { margin: 0; }
+@media (max-width: 560px) {
+  .stats { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .stat:nth-child(2n) { border-right: 0; }
+  .stat:nth-child(-n+4) { border-bottom: 1px solid var(--line); }
+  .stat dd { font-size: 18px; }
+}
+.panel { background: var(--surface); border: 1px solid var(--line); border-radius: 10px; padding: 14px; display: flex; flex-direction: column; gap: 8px; min-width: 0; }
+.panel-head { display: flex; justify-content: space-between; align-items: baseline; gap: 10px; flex-wrap: wrap; }
+h2 { font-family: var(--font-display); font-size: 16px; font-weight: 600; margin: 0; }
+.status { font-size: 12.5px; color: var(--muted); font-variant-numeric: tabular-nums; }
+canvas { display: block; width: 100%; }
+#stageCanvas { height: 430px; }
+#histCanvas { height: 210px; }
+@media (max-width: 560px) { #stageCanvas { height: 360px; } }
+.legend { display: flex; flex-wrap: wrap; gap: 6px 16px; font-size: 12.5px; color: var(--muted); }
+.legend span { display: inline-flex; align-items: center; gap: 6px; }
+.sw { width: 18px; height: 0; border-top: 2px solid var(--accent); display: inline-block; }
+.sw.dash { border-top: 2px dashed var(--muted); }
+.sw.gas { border-top-color: var(--gasline); }
+.sw.dotted { border-top: 2px dotted var(--fg); }
+.sw.dot { width: 7px; height: 7px; border: 0; border-radius: 50%; background: var(--sky-grain); box-shadow: 0 0 0 3px var(--sky); }
+.derived { font-size: 13px; color: var(--muted); font-variant-numeric: tabular-nums; margin: 0; }
+.derived b { color: var(--fg); font-weight: 600; }
+
+.notes { display: grid; grid-template-columns: repeat(auto-fit, minmax(280px, 1fr)); gap: 22px; border-top: 1px solid var(--line); padding-top: 20px; }
+.notes p { margin: 6px 0 0; color: var(--muted); max-width: 65ch; font-size: 14px; }
+.eq { font-family: "Cambria Math", "STIX Two Math", Georgia, serif; font-size: 16px; color: var(--fg); overflow-x: auto; white-space: nowrap; padding: 6px 0; }
+code { font-family: ui-monospace, "SF Mono", Menlo, Consolas, monospace; font-size: 0.92em; }
+</style>
+
+<div class="page">
+  <header>
+    <div class="eyebrow">Year 3 computing project · protoplanetary discs</div>
+    <h1>Dust settling in a protoplanetary disc</h1>
+    <p class="lede">A live run of the project's upwind solver. Grains drift towards the midplane under the star's vertical gravity while turbulence stirs them back up. Change the radius, grain size and turbulence to see when the midplane dust-to-gas ratio climbs.</p>
+  </header>
+
+  <div class="layout">
+    <form class="controls" id="controls" autocomplete="off">
+      <div class="group">
+        <div class="group-title">Report set-ups</div>
+        <div class="presets" id="presets">
+          <button type="button" class="chip" data-preset="s3">§3 Advection only<small>1 AU · 1 µm</small></button>
+          <button type="button" class="chip" data-preset="s41">§4.1 Turbulence<small>100 AU · 1 µm · α 10⁻⁴</small></button>
+          <button type="button" class="chip" data-preset="s5">§5 Grain size<small>10 AU · 1 mm · α 10⁻⁴</small></button>
+          <button type="button" class="chip" data-preset="s51">§5.1 Resolution<small>30 AU · 100 µm · α 10⁻⁴</small></button>
+        </div>
+      </div>
+
+      <div class="group">
+        <div class="group-title">Disc and grain</div>
+        <label class="field" for="inR">
+          <span class="field-head"><span>Radius R</span><output id="outR" for="inR"></output></span>
+          <input type="range" id="inR" min="0" max="1000" step="1">
+        </label>
+        <label class="field" for="inA">
+          <span class="field-head"><span>Grain size a</span><output id="outA" for="inA"></output></span>
+          <input type="range" id="inA" min="0" max="1000" step="1">
+        </label>
+      </div>
+
+      <div class="group">
+        <div class="group-title">Turbulence</div>
+        <label class="check" for="inTurb"><input type="checkbox" id="inTurb"> Turbulent diffusion</label>
+        <label class="field" for="inAlpha" id="alphaField">
+          <span class="field-head"><span>Strength α</span><output id="outAlpha" for="inAlpha"></output></span>
+          <input type="range" id="inAlpha" min="0" max="1000" step="1">
+        </label>
+      </div>
+
+      <div class="group">
+        <div class="group-title">Run</div>
+        <div class="row"><span>Grid points N</span>
+          <span class="seg" id="segN">
+            <button type="button" data-n="100">100</button><button type="button" data-n="200">200</button><button type="button" data-n="400">400</button><button type="button" data-n="800">800</button>
+          </span>
+        </div>
+        <label class="field" for="inSpeed">
+          <span class="field-head"><span>Playback speed</span><output id="outSpeed" for="inSpeed"></output></span>
+          <input type="range" id="inSpeed" min="-2" max="3" step="0.5" value="0">
+        </label>
+        <div class="transport">
+          <button type="button" class="btn primary" id="btnPlay">Pause</button>
+          <button type="button" class="btn" id="btnReset">Restart</button>
+        </div>
+      </div>
+    </form>
+
+    <div class="stage">
+      <dl class="stats">
+        <div class="stat"><dt>Elapsed</dt><dd id="stT">0 yr</dd></div>
+        <div class="stat"><dt>Midplane ε</dt><dd id="stEps">0.0100</dd></div>
+        <div class="stat"><dt>Dust layer</dt><dd id="stHd">0.98 H</dd></div>
+        <div class="stat"><dt>ε &gt; 1 reached</dt><dd id="stCross">not yet</dd></div>
+        <div class="stat"><dt>Dust mass kept</dt><dd id="stMass">100.0000%</dd></div>
+      </dl>
+
+      <section class="panel">
+        <div class="panel-head">
+          <h2>Disc cross-section and vertical profile</h2>
+          <span class="seg" id="segQ">
+            <button type="button" data-q="rho">ρ<sub>d</sub></button><button type="button" data-q="eps">ε = ρ<sub>d</sub>/ρ<sub>g</sub></button>
+          </span>
+        </div>
+        <canvas id="stageCanvas" role="img" aria-label="Left: vertical slice through the disc showing gas glow, dust band and tracer grains. Right: dust profile against height on the same z over H axis."></canvas>
+        <div class="legend" id="legend"></div>
+        <p class="derived" id="derived"></p>
+      </section>
+
+      <section class="panel">
+        <div class="panel-head">
+          <h2>Midplane dust-to-gas ratio over time</h2>
+          <span class="status" id="status"></span>
+        </div>
+        <canvas id="histCanvas" role="img" aria-label="Midplane dust-to-gas ratio against time on a logarithmic axis, with the epsilon equals one threshold marked."></canvas>
+      </section>
+    </div>
+  </div>
+
+  <section class="notes">
+    <div>
+      <h2>What is being solved</h2>
+      <div class="eq">∂ρ<sub>d</sub>/∂t + ∂(ρ<sub>d</sub> u)/∂z = α ∂/∂z [ ρ<sub>g</sub> ∂(ρ<sub>d</sub>/ρ<sub>g</sub>)/∂z ]</div>
+      <div class="eq">u = −z · St₀ · e<sup>z²/2</sup>,  ρ<sub>g</sub> = e<sup>−z²/2</sup></div>
+      <p>Heights are in gas scale heights H and times in 1/Ω. Dust starts mixed with the gas at ρ<sub>d</sub> = 0.01 ρ<sub>g</sub>. St₀ is the midplane Stokes number from the Epstein stopping time, set by R and a.</p>
+    </div>
+    <div>
+      <h2>How it matches the code</h2>
+      <p>The solver here is a JavaScript port of the corrected <code>dust_functions.py</code> and <code>diffusion_functions.py</code>: a first-order upwind finite-volume step on cell centres, with zero flux through the midplane and the top at z = 3H, then the explicit diffusion term with zero-flux boundaries. The time step is the smaller of the advection and diffusion limits, both with a safety factor of 0.4. Dust mass is conserved to rounding error.</p>
+      <p>The dotted lines are exact results to compare against: with turbulence, the steady state ρ<sub>d</sub>/ρ<sub>g</sub> ∝ exp[−(St₀/α)(e<sup>z²/2</sup> − 1)]; without it, a midplane ratio of 0.01·exp(St₀·t̂). A layer thinner than one grid cell cannot be resolved, so raise N when the solver falls short of the dotted line.</p>
+      <p>The dust band and both charts come from the grid solution. The bright grains are an illustration layer: each one follows the same settling velocity plus a random walk matched to α.</p>
+    </div>
+  </section>
+</div>
+
+<script>
+/*SOLVER-START*/
+// Port of dust_functions.py and diffusion_functions.py (mass-conserving finite-volume version)
+const G = 6.67430e-11, M_STAR = 2.0e30, AU = 1.5e11;
+const K_B = 1.380649e-23, M_H = 1.6735575e-27, RHO_IN = 1000.0;
+const YEAR = 365.25 * 24 * 3600.0;
+const Z_MAX = 3.0;
+
+function discProps(R) {
+  const T = 264.0 * Math.pow(R, -0.5);
+  const rho0 = 5.0e-7 * Math.pow(R, -3.0);
+  const cs = Math.sqrt(K_B * T / (2.0 * M_H));
+  const Omega = Math.sqrt(G * M_STAR / Math.pow(R * AU, 3));
+  return { T, rho0, cs, Omega, H: cs / Omega };
+}
+function stokes0(R, a) {
+  const d = discProps(R);
+  const ts = Math.sqrt(Math.PI / 8.0) * (RHO_IN * a) / (d.rho0 * d.cs);
+  return d.Omega * ts;
+}
+function makeSim(R, a, alpha, N) {
+  // cell-centred finite-volume grid: densities at (j + 1/2) dz, fluxes on faces j dz
+  const dz = Z_MAX / N;
+  const z = new Float64Array(N), rhoG = new Float64Array(N), vel = new Float64Array(N);
+  const rho = new Float64Array(N), adv = new Float64Array(N), f = new Float64Array(N);
+  const F = new Float64Array(N + 1), Ff = new Float64Array(N + 1), rhoGf = new Float64Array(N + 1);
+  const St0 = stokes0(R, a);
+  let umax = 0;
+  for (let j = 0; j < N; j++) {
+    z[j] = (j + 0.5) * dz;
+    rhoG[j] = Math.exp(-0.5 * z[j] * z[j]);
+    const zf = j * dz;                       // lower face of cell j; face 0 is the midplane
+    rhoGf[j] = Math.exp(-0.5 * zf * zf);
+    vel[j] = -zf * St0 / rhoGf[j];
+    rho[j] = 0.01 * rhoG[j];
+    if (-vel[j] > umax) umax = -vel[j];
+  }
+  const dtAdv = 0.4 * dz / umax;
+  const dtDiff = alpha > 0 ? 0.4 * dz * dz / (2.0 * alpha) : Infinity;
+  const dt = Math.min(dtAdv, dtDiff);
+  const c = dt / dz;
+  const sim = { R, a, alpha, N, dz, z, rhoG, vel, rho, St0, dt, t: 0, tCross: null };
+  sim.mass = () => { let m = 0; for (let j = 0; j < N; j++) m += rho[j]; return m * dz; };
+  sim.mass0 = sim.mass();
+  sim.step = function (n) {
+    for (let k = 0; k < n; k++) {
+      // conservative upwind advection: F_j = u(face j) * rho_j, zero flux at the midplane and the top
+      for (let j = 0; j < N; j++) F[j] = vel[j] * rho[j];
+      F[N] = 0;
+      for (let j = 0; j < N; j++) adv[j] = rho[j] - c * (F[j + 1] - F[j]);
+      if (alpha > 0) {
+        // turbulent diffusion of f = rho_d / rho_g, zero flux at both ends
+        for (let j = 0; j < N; j++) f[j] = adv[j] / rhoG[j];
+        for (let j = 1; j < N; j++) Ff[j] = -alpha * rhoGf[j] * (f[j] - f[j - 1]) / dz;
+        for (let j = 0; j < N; j++) rho[j] = adv[j] - dt * (Ff[j + 1] - Ff[j]) / dz;
+      } else {
+        rho.set(adv);
+      }
+      sim.t += dt;
+    }
+    if (sim.tCross === null && rho[0] / rhoG[0] > 1.0) sim.tCross = sim.t;
+  };
+  sim.epsMid = () => rho[0] / rhoG[0];
+  sim.dustHeight = () => {
+    let m = 0, m2 = 0;
+    for (let j = 0; j < N; j++) { m += rho[j]; m2 += rho[j] * z[j] * z[j]; }
+    return Math.sqrt(m2 / m);
+  };
+  // analytic steady state: rho_d/rho_g = epsMid * exp(-(St0/alpha)(exp(z^2/2) - 1)), mass conserved
+  sim.steady = null;
+  if (alpha > 0) {
+    const S = St0 / alpha, nq = 20000, h = Z_MAX / nq;
+    let Id = 0, Ig = 0;
+    for (let i = 0; i <= nq; i++) {
+      const zz = i * h, w = (i === 0 || i === nq) ? 0.5 : 1;
+      Id += w * Math.exp(-S * Math.expm1(0.5 * zz * zz) - 0.5 * zz * zz);
+      Ig += w * Math.exp(-0.5 * zz * zz);
+    }
+    const epsMid = 0.01 * Ig / Id, eps = new Float64Array(N);
+    for (let j = 0; j < N; j++) eps[j] = epsMid * Math.exp(-S * Math.expm1(0.5 * z[j] * z[j]));
+    sim.steady = { epsMid, eps };
+  }
+  return sim;
+}
+/*SOLVER-END*/
+
+// ---------- formatting ----------
+const SUP = { "-": "⁻", 0: "⁰", 1: "¹", 2: "²", 3: "³", 4: "⁴", 5: "⁵", 6: "⁶", 7: "⁷", 8: "⁸", 9: "⁹" };
+const sup = n => String(n).split("").map(ch => SUP[ch]).join("");
+function sig(v, n) { return String(parseFloat(v.toPrecision(n))); }
+function fmtNum(v, n = 3) {
+  if (v === 0) return "0";
+  const av = Math.abs(v);
+  if (av >= 0.01 && av < 10000) return sig(v, n);
+  const e = Math.floor(Math.log10(av));
+  const m = sig(v / Math.pow(10, e), n);
+  return (m === "1" ? "" : m + "×") + "10" + sup(e);
+}
+function fmtTime(yr) {
+  if (yr < 1000) return sig(yr, 3) + " yr";
+  if (yr < 1e6) return sig(yr / 1e3, 3) + " kyr";
+  return sig(yr / 1e6, 3) + " Myr";
+}
+function fmtGrain(a) {
+  if (a < 1e-3) return sig(a * 1e6, 2) + " µm";
+  if (a < 1e-2) return sig(a * 1e3, 2) + " mm";
+  return sig(a * 1e2, 2) + " cm";
+}
+
+// ---------- state ----------
+const $ = id => document.getElementById(id);
+const PRESETS = {
+  s3: { R: 1, a: 1e-6, turb: false, alpha: 1e-4 },
+  s41: { R: 100, a: 1e-6, turb: true, alpha: 1e-4 },
+  s5: { R: 10, a: 1e-3, turb: true, alpha: 1e-4 },
+  s51: { R: 30, a: 1e-4, turb: true, alpha: 1e-4 }
+};
+const state = { R: 30, a: 1e-4, turb: true, alpha: 1e-4, N: 200, q: "rho", speed: 1, preset: "s51" };
+const reduceMotion = window.matchMedia && window.matchMedia("(prefers-reduced-motion: reduce)").matches;
+let running = !reduceMotion, finished = false, dirty = true;
+let sim, tc, tEnd, hist, tracers;
+
+const NTR = 650;
+function gauss() {
+  let u = 0; while (u === 0) u = Math.random();
+  return Math.sqrt(-2 * Math.log(u)) * Math.cos(2 * Math.PI * Math.random());
+}
+function makeTracers() {
+  const z = new Float64Array(NTR), x = new Float64Array(NTR), s = new Int8Array(NTR), r = new Float64Array(NTR);
+  for (let i = 0; i < NTR; i++) {
+    let v; do { v = Math.abs(gauss()); } while (v >= Z_MAX);
+    z[i] = v; x[i] = Math.random(); s[i] = Math.random() < 0.5 ? -1 : 1; r[i] = 0.7 + Math.random() * 0.9;
+  }
+  return { z, x, s, r };
+}
+function advanceTracers(dtTot) {
+  const m = 6, h = dtTot / m, al = sim.alpha, St0 = sim.St0, z = tracers.z;
+  for (let k = 0; k < m; k++) {
+    for (let i = 0; i < NTR; i++) {
+      const rate = al + St0 * Math.exp(0.5 * z[i] * z[i]);
+      const e = Math.exp(-rate * h);
+      let v = z[i] * e;
+      if (al > 0) v += Math.sqrt(al / rate * (1 - e * e)) * gauss();
+      v = Math.abs(v);
+      if (v > Z_MAX) v = Math.abs(2 * Z_MAX - v);
+      z[i] = v;
+    }
+  }
+}
+
+function rebuild() {
+  const alpha = state.turb ? state.alpha : 0;
+  sim = makeSim(state.R, state.a, alpha, state.N);
+  tc = 1 / (sim.St0 + alpha);
+  tEnd = 10 * tc;
+  hist = [{ t: 0, e: sim.epsMid() }];
+  tracers = makeTracers();
+  finished = false;
+  dirty = true;
+  syncUI();
+}
+
+// ---------- controls ----------
+const toR = v => Math.pow(10, v / 500), fromR = R => Math.round(500 * Math.log10(R));
+const toA = v => Math.pow(10, -6 + 4 * v / 1000), fromA = a => Math.round((Math.log10(a) + 6) * 250);
+const toAl = v => Math.pow(10, -6 + 4 * v / 1000), fromAl = fromA;
+
+function syncUI() {
+  $("inR").value = fromR(state.R); $("outR").textContent = sig(state.R, 2) + " AU";
+  $("inA").value = fromA(state.a); $("outA").textContent = fmtGrain(state.a);
+  $("inTurb").checked = state.turb;
+  $("inAlpha").value = fromAl(state.alpha); $("inAlpha").disabled = !state.turb;
+  $("alphaField").classList.toggle("disabled", !state.turb);
+  $("outAlpha").textContent = state.turb ? fmtNum(state.alpha, 2) : "off";
+  $("outSpeed").textContent = state.speed + "×";
+  document.querySelectorAll("#presets .chip").forEach(b => b.setAttribute("aria-pressed", String(b.dataset.preset === state.preset)));
+  document.querySelectorAll("#segN button").forEach(b => b.setAttribute("aria-pressed", String(+b.dataset.n === state.N)));
+  document.querySelectorAll("#segQ button").forEach(b => b.setAttribute("aria-pressed", String(b.dataset.q === state.q)));
+  $("btnPlay").textContent = finished ? "Run again" : (running ? "Pause" : "Play");
+  const d = discProps(state.R);
+  $("derived").innerHTML =
+    "St₀ = <b>" + fmtNum(sim.St0, 2) + "</b> · H = <b>" + fmtNum(d.H / AU, 2) + " AU</b> · T = <b>" + sig(d.T, 3) +
+    " K</b> · orbit = <b>" + fmtTime(2 * Math.PI / d.Omega / YEAR) + "</b> · Δt̂ = <b>" + fmtNum(sim.dt, 2) + "</b>" +
+    (sim.steady ? " · analytic steady-state midplane ε = <b>" + fmtNum(sim.steady.epsMid, 3) + "</b>"
+      : " · exact time to ε = 1: <b>" + fmtTime(Math.log(100) / sim.St0 / d.Omega / YEAR) + "</b>");
+  $("legend").innerHTML = state.q === "rho"
+    ? '<span><i class="sw"></i>dust ρ<sub>d</sub> now</span><span><i class="sw dash"></i>dust at t = 0</span><span><i class="sw gas"></i>gas ρ<sub>g</sub></span><span><i class="sw dotted"></i>analytic steady state</span><span><i class="sw dot"></i>tracer grains</span>'
+    : '<span><i class="sw"></i>ε now</span><span><i class="sw dash"></i>ε at t = 0 and the ε = 1 threshold</span><span><i class="sw dotted"></i>analytic steady state</span><span><i class="sw dot"></i>tracer grains</span>';
+}
+$("inR").addEventListener("input", e => { state.R = toR(+e.target.value); state.preset = null; rebuild(); });
+$("inA").addEventListener("input", e => { state.a = toA(+e.target.value); state.preset = null; rebuild(); });
+$("inAlpha").addEventListener("input", e => { state.alpha = toAl(+e.target.value); state.preset = null; rebuild(); });
+$("inTurb").addEventListener("change", e => { state.turb = e.target.checked; state.preset = null; rebuild(); });
+$("inSpeed").addEventListener("input", e => { state.speed = Math.pow(2, +e.target.value); syncUI(); });
+$("presets").addEventListener("click", e => {
+  const b = e.target.closest("[data-preset]"); if (!b) return;
+  Object.assign(state, PRESETS[b.dataset.preset], { preset: b.dataset.preset });
+  rebuild();
+});
+$("segN").addEventListener("click", e => { const b = e.target.closest("[data-n]"); if (b) { state.N = +b.dataset.n; rebuild(); } });
+$("segQ").addEventListener("click", e => { const b = e.target.closest("[data-q]"); if (b) { state.q = b.dataset.q; dirty = true; syncUI(); } });
+$("btnPlay").addEventListener("click", () => {
+  if (finished) { rebuild(); running = true; } else running = !running;
+  dirty = true; syncUI();
+});
+$("btnReset").addEventListener("click", () => { rebuild(); });
+$("controls").addEventListener("submit", e => e.preventDefault());
+
+// ---------- drawing ----------
+function fit(cv) {
+  const r = cv.getBoundingClientRect(), dpr = window.devicePixelRatio || 1;
+  const w = Math.max(1, Math.round(r.width * dpr)), h = Math.max(1, Math.round(r.height * dpr));
+  if (cv.width !== w || cv.height !== h) { cv.width = w; cv.height = h; }
+  const ctx = cv.getContext("2d");
+  ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+  return { ctx, W: r.width, H: r.height };
+}
+function tokens() {
+  const cs = getComputedStyle(document.documentElement), g = n => cs.getPropertyValue(n).trim();
+  return { fg: g("--fg"), muted: g("--muted"), line: g("--line"), accent: g("--accent"), soft: g("--accent-soft"),
+    gas: g("--gasline"), sky: g("--sky"), skyGas: g("--sky-gas"), skyDust: g("--sky-dust"), grain: g("--sky-grain"), skyText: g("--sky-text"), surface: g("--surface") };
+}
+const FONT = '12px Inter, system-ui, sans-serif';
+const LOG_LO = -5, LOG_HI = 1;
+
+function drawStage(tk) {
+  const { ctx, W, H } = fit($("stageCanvas"));
+  ctx.clearRect(0, 0, W, H);
+  ctx.font = FONT;
+  const ml = 34, mt = 8, mb = 30, gap = 14;
+  const sliceW = Math.round((W - ml - gap - 8) * (W < 520 ? 0.46 : 0.52));
+  const xs0 = ml, xs1 = ml + sliceW, xp0 = xs1 + gap, xp1 = W - 8;
+  const y0 = mt, y1 = H - mb, yc = (y0 + y1) / 2, half = (y1 - y0) / 2;
+  const yOf = z => yc - z / Z_MAX * half;
+  const { rho, rhoG, N, dz } = sim;
+
+  // --- cross-section ---
+  ctx.fillStyle = tk.sky; ctx.fillRect(xs0, y0, sliceW, y1 - y0);
+  const strip = 2;
+  for (let py = y0; py < y1; py += strip) {
+    const zz = Math.abs((yc - (py + strip / 2)) / half * Z_MAX);
+    const g = Math.exp(-0.5 * zz * zz);
+    ctx.fillStyle = "rgba(" + tk.skyGas + "," + (0.5 * g).toFixed(3) + ")";
+    ctx.fillRect(xs0, py, sliceW, strip);
+    const fj = Math.max(0, zz / dz - 0.5), j = Math.min(N - 2, Math.floor(fj)), w = Math.min(1, fj - j);
+    const v = rho[j] * (1 - w) + rho[j + 1] * w;
+    const inten = Math.max(0, Math.min(1, (Math.log10(Math.max(v, 1e-12)) + 4.5) / 4.5));
+    if (inten > 0) {
+      ctx.fillStyle = "rgba(" + tk.skyDust + "," + (0.8 * inten).toFixed(3) + ")";
+      ctx.fillRect(xs0, py, sliceW, strip);
+    }
+  }
+  ctx.save();
+  ctx.beginPath(); ctx.rect(xs0, y0, sliceW, y1 - y0); ctx.clip();
+  ctx.fillStyle = tk.grain; ctx.globalAlpha = 0.9;
+  for (let i = 0; i < NTR; i++) {
+    const px = xs0 + tracers.x[i] * sliceW, py = yOf(tracers.s[i] * tracers.z[i]);
+    ctx.beginPath(); ctx.arc(px, py, tracers.r[i], 0, 6.2832); ctx.fill();
+  }
+  ctx.restore();
+  ctx.fillStyle = tk.skyText; ctx.textAlign = "left"; ctx.textBaseline = "top";
+  ctx.fillText("gas glow + dust band", xs0 + 8, y0 + 7);
+
+  // --- shared z axis ---
+  ctx.textAlign = "right"; ctx.textBaseline = "middle"; ctx.fillStyle = tk.muted;
+  for (let zt = -3; zt <= 3; zt++) {
+    const y = yOf(zt);
+    ctx.fillText((zt > 0 ? "+" : zt < 0 ? "−" : "") + Math.abs(zt), ml - 7, Math.max(y0 + 6, Math.min(y1 - 6, y)));
+    ctx.strokeStyle = tk.line; ctx.lineWidth = 1;
+    ctx.beginPath(); ctx.moveTo(xp0, Math.round(y) + 0.5); ctx.lineTo(xp1, Math.round(y) + 0.5); ctx.stroke();
+  }
+  ctx.save(); ctx.translate(9, yc); ctx.rotate(-Math.PI / 2); ctx.textAlign = "center"; ctx.fillText("height z / H", 0, 0); ctx.restore();
+  ctx.textAlign = "center"; ctx.textBaseline = "top";
+  ctx.fillText("slice at R = " + sig(state.R, 2) + " AU", (xs0 + xs1) / 2, y1 + 9);
+
+  // --- profile (log axis) ---
+  const pw = xp1 - xp0;
+  const xOf = v => xp0 + (Math.log10(Math.min(Math.pow(10, LOG_HI), Math.max(v, Math.pow(10, LOG_LO)))) - LOG_LO) / (LOG_HI - LOG_LO) * pw;
+  for (let d = LOG_LO; d <= LOG_HI; d++) {
+    const x = Math.round(xp0 + (d - LOG_LO) / (LOG_HI - LOG_LO) * pw) + 0.5;
+    ctx.strokeStyle = tk.line; ctx.beginPath(); ctx.moveTo(x, y0); ctx.lineTo(x, y1); ctx.stroke();
+    if ((d - LOG_LO) % 2 === 1) {
+      ctx.fillStyle = tk.muted;
+      ctx.fillText(d === 0 ? "1" : "10" + sup(d), x, y1 + 9);
+    }
+  }
+  ctx.fillStyle = tk.muted; ctx.textAlign = "right";
+  ctx.fillText(state.q === "rho" ? "ρd / ρg(R,0)" : "ε", xp1, y1 + 9);
+  const isEps = state.q === "eps";
+  const val = j => isEps ? rho[j] / rhoG[j] : rho[j];
+  const trace = fn => {
+    ctx.beginPath();
+    for (let j = N - 1; j >= 0; j--) { const x = fn(j), y = yOf(sim.z[j]); if (j === N - 1) ctx.moveTo(x, y); else ctx.lineTo(x, y); }
+    for (let j = 1; j < N; j++) ctx.lineTo(fn(j), yOf(-sim.z[j]));
+  };
+  ctx.save();
+  ctx.beginPath(); ctx.rect(xp0, y0, pw, y1 - y0); ctx.clip();
+  if (!isEps) { // gas
+    ctx.strokeStyle = tk.gas; ctx.lineWidth = 1.5; trace(j => xOf(rhoG[j])); ctx.stroke();
+  } else { // threshold
+    ctx.strokeStyle = tk.muted; ctx.setLineDash([5, 4]); ctx.lineWidth = 1.5;
+    ctx.beginPath(); ctx.moveTo(xOf(1), y0); ctx.lineTo(xOf(1), y1); ctx.stroke(); ctx.setLineDash([]);
+  }
+  ctx.strokeStyle = tk.muted; ctx.setLineDash([5, 4]); ctx.lineWidth = 1.5;
+  trace(j => xOf(isEps ? 0.01 : 0.01 * rhoG[j])); ctx.stroke(); ctx.setLineDash([]);
+  if (sim.steady) { // analytic steady state
+    ctx.strokeStyle = tk.fg; ctx.setLineDash([2, 4]); ctx.lineWidth = 1.5;
+    trace(j => xOf(isEps ? sim.steady.eps[j] : sim.steady.eps[j] * rhoG[j])); ctx.stroke(); ctx.setLineDash([]);
+  }
+  trace(j => xOf(val(j)));
+  ctx.lineTo(xp0, y1); ctx.lineTo(xp0, y0); ctx.closePath();
+  ctx.fillStyle = tk.soft; ctx.fill();
+  trace(j => xOf(val(j)));
+  ctx.strokeStyle = tk.accent; ctx.lineWidth = 2; ctx.lineJoin = "round"; ctx.stroke();
+  ctx.restore();
+  if (isEps) { ctx.fillStyle = tk.muted; ctx.textAlign = "right"; ctx.textBaseline = "top"; ctx.fillText("ε = 1", xOf(1) - 5, y0 + 5); }
+  ctx.strokeStyle = tk.muted; ctx.lineWidth = 1;
+  ctx.beginPath(); ctx.moveTo(xp0 + 0.5, y0); ctx.lineTo(xp0 + 0.5, y1); ctx.stroke();
+}
+
+function niceStep(x) {
+  const p = Math.pow(10, Math.floor(Math.log10(x))), m = x / p;
+  return (m < 1.5 ? 1 : m < 3.5 ? 2 : m < 7.5 ? 5 : 10) * p;
+}
+function drawHist(tk) {
+  const { ctx, W, H } = fit($("histCanvas"));
+  ctx.clearRect(0, 0, W, H);
+  ctx.font = FONT;
+  const ml = 40, mr = 14, mt = 10, mb = 28;
+  const x0 = ml, x1 = W - mr, y0 = mt, y1 = H - mb;
+  const Om = discProps(state.R).Omega;
+  const endYr = tEnd / Om / YEAR;
+  const unit = endYr >= 2e6 ? 1e6 : endYr >= 2e3 ? 1e3 : 1, uName = unit === 1e6 ? "Myr" : unit === 1e3 ? "kyr" : "yr";
+  const xOf = t => x0 + t / tEnd * (x1 - x0);
+  const LO = -2, HI = 1;
+  const yOf = e => y1 - (Math.log10(Math.min(Math.pow(10, HI), Math.max(e, Math.pow(10, LO)))) - LO) / (HI - LO) * (y1 - y0);
+  ctx.textAlign = "right"; ctx.textBaseline = "middle";
+  for (let d = LO; d <= HI; d++) {
+    const y = Math.round(yOf(Math.pow(10, d))) + 0.5;
+    ctx.strokeStyle = tk.line; ctx.lineWidth = 1; ctx.beginPath(); ctx.moveTo(x0, y); ctx.lineTo(x1, y); ctx.stroke();
+    ctx.fillStyle = tk.muted; ctx.fillText(String(Math.pow(10, d)), x0 - 7, y);
+  }
+  ctx.textAlign = "center"; ctx.textBaseline = "top";
+  const st = niceStep(endYr / unit / 5);
+  for (let v = 0; v <= endYr / unit * 1.0001; v += st) {
+    const x = xOf(v * unit * YEAR * Om);
+    ctx.fillStyle = tk.muted; ctx.fillText(sig(v, 3), x, y1 + 8);
+  }
+  ctx.textAlign = "right"; ctx.fillText("time (" + uName + ")", x1, y1 + 8 - 0);
+  // threshold
+  ctx.strokeStyle = tk.muted; ctx.setLineDash([5, 4]); ctx.lineWidth = 1.5;
+  ctx.beginPath(); ctx.moveTo(x0, yOf(1)); ctx.lineTo(x1, yOf(1)); ctx.stroke(); ctx.setLineDash([]);
+  ctx.fillStyle = tk.muted; ctx.textAlign = "right"; ctx.textBaseline = "bottom";
+  ctx.fillText("ε = 1, dust outweighs gas", x1 - 4, yOf(1) - 4);
+  // analytic reference: steady state with turbulence, exact exponential growth without
+  ctx.strokeStyle = tk.fg; ctx.setLineDash([2, 4]); ctx.lineWidth = 1.5; ctx.beginPath();
+  if (sim.steady) { ctx.moveTo(x0, yOf(sim.steady.epsMid)); ctx.lineTo(x1, yOf(sim.steady.epsMid)); }
+  else for (let i = 0; i <= 120; i++) { const t = tEnd * i / 120, y = yOf(0.01 * Math.exp(sim.St0 * t)); if (i) ctx.lineTo(xOf(t), y); else ctx.moveTo(xOf(t), y); }
+  ctx.stroke(); ctx.setLineDash([]);
+  ctx.fillStyle = tk.muted; ctx.textAlign = "left"; ctx.textBaseline = "top";
+  ctx.fillText(sim.steady ? "dotted: analytic steady state" : "dotted: exact, 0.01·exp(St₀·t̂)", x0 + 6, y0 + 2);
+  // curve
+  ctx.beginPath();
+  hist.forEach((p, i) => { const x = xOf(p.t), y = yOf(p.e); if (i) ctx.lineTo(x, y); else ctx.moveTo(x, y); });
+  ctx.strokeStyle = tk.accent; ctx.lineWidth = 2; ctx.lineJoin = "round"; ctx.stroke();
+  const last = hist[hist.length - 1];
+  ctx.fillStyle = tk.accent; ctx.beginPath(); ctx.arc(xOf(last.t), yOf(last.e), 4, 0, 6.2832); ctx.fill();
+  if (sim.tCross !== null) {
+    ctx.strokeStyle = tk.fg; ctx.lineWidth = 1.5; ctx.beginPath(); ctx.arc(xOf(sim.tCross), yOf(1), 5, 0, 6.2832); ctx.stroke();
+  }
+}
+
+function drawStats() {
+  const Om = discProps(state.R).Omega;
+  $("stT").textContent = fmtTime(sim.t / Om / YEAR);
+  $("stEps").textContent = fmtNum(sim.epsMid(), 3);
+  $("stHd").textContent = sim.dustHeight().toFixed(2) + " H";
+  $("stCross").textContent = sim.tCross === null ? "not yet" : fmtTime(sim.tCross / Om / YEAR);
+  $("stMass").textContent = (100 * sim.mass() / sim.mass0).toFixed(4) + "%";
+  $("status").textContent = finished ? "Run complete: 10 response times, 10 / (St₀ + α)"
+    : (running ? "Running" : "Paused") + " · " + Math.round(100 * sim.t / tEnd) + "% of 10 / (St₀ + α)";
+}
+
+function frame() {
+  if (running && !finished) {
+    const cap = state.speed * tc / 300, t0 = performance.now();
+    let adv = 0;
+    while (adv < cap && performance.now() - t0 < 10) {
+      const n = Math.max(1, Math.min(64, Math.ceil((cap - adv) / sim.dt)));
+      sim.step(n); adv += n * sim.dt;
+    }
+    advanceTracers(adv);
+    hist.push({ t: sim.t, e: sim.epsMid() });
+    if (hist.length > 6000) hist = hist.filter((p, i) => i % 2 === 0 || i === hist.length - 1);
+    if (sim.t >= tEnd) { finished = true; syncUI(); }
+    dirty = true;
+  }
+  if (dirty) {
+    const tk = tokens();
+    drawStage(tk); drawHist(tk); drawStats();
+    dirty = false;
+  }
+  requestAnimationFrame(frame);
+}
+
+if (typeof document !== "undefined") {
+  rebuild();
+  window.addEventListener("resize", () => { dirty = true; });
+  if (window.matchMedia) window.matchMedia("(prefers-color-scheme: dark)").addEventListener("change", () => { dirty = true; });
+  new MutationObserver(() => { dirty = true; }).observe(document.documentElement, { attributes: true, attributeFilter: ["data-theme"] });
+  if (document.fonts && document.fonts.ready) document.fonts.ready.then(() => { dirty = true; });
+  requestAnimationFrame(frame);
+}
+</script>

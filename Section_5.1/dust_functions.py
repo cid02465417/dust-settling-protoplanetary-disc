@@ -3,7 +3,13 @@ Disc model and advection-only dust settling solver.
 
 Physical disc / grain properties as functions of cylindrical radius R,
 dimensionless vertical profiles (z_hat = z / H, t_hat = Omega t), and a
-first-order upwind step for the dust density.
+first-order, mass-conserving upwind (finite-volume) step for the dust density.
+
+Grid convention
+---------------
+The domain [0, z_max] is split into N cells of width dz. Densities live at the
+cell centres z_j = (j + 1/2) dz; fluxes live on the cell faces z = j dz. The
+midplane z = 0 is therefore a face, where the flux is exactly zero by symmetry.
 """
 
 import numpy as np
@@ -20,6 +26,10 @@ AU     = 1.5e11               # 1 AU in m
 k_B    = 1.380649e-23         # Boltzmann constant
 m_H    = 1.6735575e-27        # hydrogen mass
 RHO_IN = 1000.0               # internal grain density rho_in
+
+YEAR   = 365.25 * 24 * 3600.0 # seconds in a year
+
+EPS_0  = 0.01                 # initial dust-to-gas ratio
 
 
 # ------------------------------------------------------------
@@ -85,7 +95,7 @@ def stopping_time_midplane(R_AU, a):
 
     Project formula (Epstein drag):
 
-        t_s(z) = (sqrt(pi) / 8) * (rho_in * a) / (rho_g(z) * c_s)
+        t_s(z) = sqrt(pi / 8) * (rho_in * a) / (rho_g(z) * c_s)
 
     evaluated at z = 0, so rho_g = rho_g(R, 0).
 
@@ -98,7 +108,7 @@ def stopping_time_midplane(R_AU, a):
     """
     rho_g0 = rho_g0_R(R_AU)
     cs     = sound_speed(R_AU)
-    return np.sqrt(np.pi) / 8.0 * (RHO_IN * a) / (rho_g0 * cs)
+    return np.sqrt(np.pi / 8.0) * (RHO_IN * a) / (rho_g0 * cs)
 
 
 def St0_from_R_a(R_AU, a):
@@ -106,6 +116,9 @@ def St0_from_R_a(R_AU, a):
     Dimensionless stopping time (Stokes number) at the midplane:
 
         St0 = Omega * t_s(z=0)
+
+    The terminal-velocity approximation used for the settling speed is only
+    valid for St << 1.
     """
     return Omega_K(R_AU) * stopping_time_midplane(R_AU, a)
 
@@ -114,17 +127,19 @@ def St0_from_R_a(R_AU, a):
 # Dimensionless vertical grid and profiles
 # ------------------------------------------------------------
 
-def make_z_grid(z_max=5.0, N=400):
+def make_z_grid(z_max=3.0, N=400):
     """
-    Create a uniform grid in dimensionless height z_hat on [0, z_max).
+    Create a uniform cell-centred grid in dimensionless height z_hat.
+
+    The N cells cover [0, z_max]; cell j spans [j dz, (j+1) dz].
 
     Returns
     -------
-    z  : (N,) array of z_hat values
-    dz : grid spacing in z_hat
+    z  : (N,) array of cell-centre heights, z_j = (j + 1/2) dz
+    dz : cell width in z_hat
     """
     dz = z_max / N
-    z = np.linspace(0.0, z_max - dz, N)   # half-open interval
+    z = (np.arange(N) + 0.5) * dz
     return z, dz
 
 
@@ -162,44 +177,60 @@ def velocity_dimless(z_hat, St0):
     return -z_hat * ts_dimless(z_hat, St0)
 
 
-# ------------------------------------------------------------
-# 1D dust advection step (upwind, explicit Euler)
-# ------------------------------------------------------------
-
-def dust_step(rho, dz, dt, vel):
+def face_velocity(z_hat, dz_hat, St0):
     """
-    One explicit upwind step for the dust density with variable velocity.
+    Settling velocity on the lower face of every cell.
 
-    rho : (N,) array   dust density (dimensionless) at the current time
-    dz  : float        grid spacing in z_hat
-    dt  : float        time step in t_hat
-    vel : (N,) array   dimensionless velocity u_hat(z_hat), assumed <= 0
+    z_hat are the cell centres from make_z_grid, so the lower faces sit at
+    z_hat - dz_hat / 2 = j dz. The first face is the midplane, where the
+    velocity (and so the flux) is exactly zero.
+    """
+    z_face = z_hat - 0.5 * dz_hat
+    return velocity_dimless(z_face, St0)
+
+
+# ------------------------------------------------------------
+# 1D dust advection step (upwind, explicit Euler, finite volume)
+# ------------------------------------------------------------
+
+def dust_step(rho, dz, dt, vel_face):
+    """
+    One explicit, conservative upwind step for the dust density.
+
+    rho      : (N,) array   cell-averaged dust density (dimensionless)
+    dz       : float        cell width in z_hat
+    dt       : float        time step in t_hat
+    vel_face : (N,) array   velocity on the lower face of each cell
+                            (from face_velocity), assumed <= 0
+
+    The flux through the lower face of cell j is
+
+        F_j = u(z = j dz) * rho_j
+
+    The dust moves downwards, so the upwind (donor) cell is the one above
+    the face, which is cell j itself. The update is
+
+        rho_j^{n+1} = rho_j^n - dt/dz * (F_{j+1} - F_j)
 
     Boundary conditions:
-        z = 0     : reflective (no-flux) via a mirrored ghost cell
-        z = z_max : outflow, rho_ghost = 0
+        z = 0     : reflective. The face velocity is zero there, so F_0 = 0
+                    and nothing crosses the midplane.
+        z = z_max : no inflow. The flux through the top face is zero because
+                    there is no dust above the domain to settle in.
+
+    Every flux leaves one cell and enters its neighbour, so the total dust
+    mass sum(rho) * dz is conserved to rounding error.
     """
-    # Ghost cell at the midplane (reflective BC)
-    rho = np.insert(rho, 0, rho[1])
-    vel = np.insert(vel, 0, -vel[1])
+    F_lower = vel_face * rho                 # F_0 = 0 because vel_face[0] = 0
+    F_upper = np.append(F_lower[1:], 0.0)    # top face: no inflow
+    return rho - dt / dz * (F_upper - F_lower)
 
-    # Ghost cell at the top (outflow BC)
-    rho = np.append(rho, 0.0)
-    vel = np.append(vel, 0.0)
 
-    rho_new = rho.copy()
-
-    # Flux
-    F = vel * rho
-
-    # Interior update
-    rho_new[1:-1] -= dt / dz * (F[2:] - F[1:-1])
-
-    # Extra correction at the midplane using ghost + first cell
-    rho_new[1] -= dt / dz * (F[1] - F[0])
-
-    # Strip ghost cells before returning
-    return rho_new[1:-1]
+def advection_timestep(dz, vel_face, cfl=0.4):
+    """
+    Largest stable advection time step, dt = cfl * dz / max|u|  (cfl <= 1).
+    """
+    return cfl * dz / np.max(np.abs(vel_face))
 
 
 def dust_to_gas_ratio_dimless(rho_d_hat, z_hat):
@@ -212,4 +243,36 @@ def dust_to_gas_ratio_dimless(rho_d_hat, z_hat):
     so epsilon = rho_d_hat / rho_g_hat.
     """
     rho_g_hat = gas_density_dimless(z_hat)
-    return rho_d_hat / (rho_g_hat + 1e-300)
+    return rho_d_hat / rho_g_hat
+
+
+def dust_mass(rho_d_hat, dz_hat):
+    """
+    Dust column (per unit area, one side of the disc) in dimensionless units.
+    Constant in time for a conservative scheme.
+    """
+    return np.sum(rho_d_hat) * dz_hat
+
+
+# ------------------------------------------------------------
+# Analytic results for the advection-only problem
+# ------------------------------------------------------------
+
+def midplane_epsilon_advection(t_hat, St0, eps0=EPS_0):
+    """
+    Exact midplane dust-to-gas ratio without turbulence.
+
+    At z = 0 the advection equation reduces to
+    d(rho_d)/dt = -(du/dz) rho_d = St0 * rho_d, so
+
+        epsilon(z = 0, t_hat) = eps0 * exp(St0 * t_hat)
+    """
+    return eps0 * np.exp(St0 * t_hat)
+
+
+def time_to_epsilon_one_advection(St0, eps0=EPS_0):
+    """
+    Dimensionless time for the midplane to reach epsilon = 1 without
+    turbulence:  t_hat = ln(1 / eps0) / St0.
+    """
+    return np.log(1.0 / eps0) / St0

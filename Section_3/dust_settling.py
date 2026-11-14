@@ -4,7 +4,7 @@ import matplotlib.pyplot as plt
 from dust_functions import (
     temperature_R, rho_g0_R, sound_speed, Omega_K, scale_height,
     St0_from_R_a, make_z_grid, gas_density_dimless,
-    velocity_dimless, dust_step, dust_to_gas_ratio_dimless
+    face_velocity, dust_step, dust_to_gas_ratio_dimless, dust_mass
 )
 
 
@@ -44,8 +44,8 @@ N         = 400      # number of grid points
 
 z_hat, dz_hat = make_z_grid(z_max=z_max_hat, N=N)
 
-# Dimensionless settling velocity u_hat(z_hat)
-u_hat = velocity_dimless(z_hat, St0=St0)
+# Dimensionless settling velocity on the lower face of every cell
+u_hat = face_velocity(z_hat, dz_hat, St0)
 
 # CFL number for stability (advection)
 cfl = 0.5
@@ -73,6 +73,7 @@ rho_g_hat = gas_density_dimless(z_hat)
 
 
 rho_d = 0.01 * rho_g_hat
+mass_initial = dust_mass(rho_d, dz_hat)
 
 
 # Time integration
@@ -112,11 +113,12 @@ print(f"Physical time ≈ {t_hat/Omega/year:.3e} years "
       f"(≈ {t_hat/Omega/Myr:.3e} Myr)")
 
 
-# Dust-to-gas ratio
+# Dust-to-gas ratio and mass check
 
 
 epsilon_final_midplane = dust_to_gas_ratio_dimless(rho_d, z_hat)[0]
-print(f"Final ε_midplane = ρ_d/ρ_g at z=0 ≈ {epsilon_final_midplane:.3e}")
+print(f"Final ε_midplane = ρ_d/ρ_g in the lowest cell ≈ {epsilon_final_midplane:.3e}")
+print(f"Dust mass now / initial = {dust_mass(rho_d, dz_hat) / mass_initial:.12f}")
 
 
 # Plot dust density profiles

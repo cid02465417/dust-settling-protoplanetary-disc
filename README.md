@@ -45,8 +45,10 @@ cd Section_4
 python section_4.py
 ```
 
-Produces Figure 2 of the report (this takes about a minute). Set `N = 400` and
-`t_hat_final = 50500000.0` to get Figure 1.
+Evolves 1 µm dust at 1 AU for 10 Myr and compares the midplane dust-to-gas ratio
+with the exact result `0.01 * exp(St0 * t)`. It then measures the time to reach
+`epsilon = 1` at several radii and compares it with `ln(100) / (St0 * Omega)`.
+Takes about 15 seconds.
 
 ### Section 4.1: Estimating alpha
 
@@ -55,7 +57,8 @@ cd Section_4.1
 python section_4_1.py
 ```
 
-Compares dust profiles for different turbulence strengths `alpha` to estimate alpha.
+Compares dust profiles at 100 AU after 1 Myr for different turbulence strengths
+`alpha`, with the analytic steady state overlaid, to estimate alpha.
 
 ### Section 5: Grain size thresholds
 
@@ -64,10 +67,10 @@ cd Section_5
 python section_5.py
 ```
 
-Runs a simulation for one radius and one grain size. Running every radius and grain
-size at once would take too long, so to scan more grain sizes at a given radius,
-uncomment entries in `a_list`. The final plot shows the threshold grain size needed
-for a dust-to-gas ratio above 1 at different radii.
+Part 1 runs the solver at one radius for a few grain sizes (about 15 seconds each)
+and checks the steady-state midplane dust-to-gas ratio against the analytic result.
+Part 2 uses that analytic steady state to find the grain size needed for
+`epsilon > 1` at 5, 10, 20 and 30 AU.
 
 ### Section 5.1: Resolution study
 
@@ -76,4 +79,27 @@ cd Section_5.1
 python section_5_1.py
 ```
 
-Shows how the number of spatial grid points `N` affects the solution.
+Shows how the number of grid points `N` affects the steady-state solution and
+measures the convergence towards the analytic steady state.
+
+### Verification
+
+```bash
+cd Verification
+python verify_solver.py
+```
+
+Checks mass conservation, the exact advection-only midplane growth and the
+analytic steady state. Prints PASS or FAIL for each check.
+
+## Numerical scheme
+
+Densities are stored at cell centres and fluxes on cell faces (finite volume).
+The midplane is a face with zero flux, so the scheme conserves dust mass to
+rounding error. Advection is first-order upwind; diffusion is explicit and
+centred. The time step satisfies both the CFL and the diffusion limit.
+
+## Interactive simulations
+
+`Simulation/dust_settling_sim.html` (1D solver) and `Simulation/disc_3d_model.html`
+(3D disc) open in a web browser.

@@ -1,0 +1,681 @@
+<meta charset="utf-8">
+<meta name="claude:viewport-fit-sides" content="cover">
+<title>Protoplanetary Disc 3D Model</title>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600&family=Space+Grotesk:wght@500;600&display=swap">
+<style>
+/* Layout: one wide 3D viewport with a clock overlay; under it, controls on the left
+   and a per-radius readout table on the right; notes at the bottom. */
+:root {
+  --bg: #f2f3f8;
+  --surface: #ffffff;
+  --fg: #171a2b;
+  --muted: #5a5f78;
+  --line: #d8dbe8;
+  --accent: #a85d08;
+  --accent-soft: rgba(168, 93, 8, 0.16);
+  --good: #1f7a4d;
+  --good-soft: rgba(31, 122, 77, 0.14);
+  --sky: #05060f;
+  --sky-fg: #eef0ff;
+  --sky-text: #aab0d0;
+  --sky-panel: rgba(10, 12, 28, 0.72);
+  --sky-line: rgba(170, 176, 208, 0.3);
+  --sky-accent: #f0a93b;
+  --font-display: "Space Grotesk", "Inter", system-ui, sans-serif;
+  --font-body: "Inter", system-ui, -apple-system, "Segoe UI", sans-serif;
+}
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) {
+    --bg: #0d0f1e; --surface: #161930; --fg: #e9eaf3; --muted: #9a9fba; --line: #2b2f4b;
+    --accent: #f0a93b; --accent-soft: rgba(240, 169, 59, 0.18);
+    --good: #5fd39a; --good-soft: rgba(95, 211, 154, 0.16);
+    color-scheme: dark;
+  }
+}
+:root[data-theme="dark"] {
+  --bg: #0d0f1e; --surface: #161930; --fg: #e9eaf3; --muted: #9a9fba; --line: #2b2f4b;
+  --accent: #f0a93b; --accent-soft: rgba(240, 169, 59, 0.18);
+  --good: #5fd39a; --good-soft: rgba(95, 211, 154, 0.16);
+  color-scheme: dark;
+}
+* { box-sizing: border-box; }
+body {
+  background: var(--bg); color: var(--fg);
+  font-family: var(--font-body); font-size: 15px; line-height: 1.5;
+  padding-block: 28px 48px;
+  padding-left: max(16px, env(safe-area-inset-left, 0px));
+  padding-right: max(16px, env(safe-area-inset-right, 0px));
+}
+.page { max-width: 1180px; margin: 0 auto; display: flex; flex-direction: column; gap: 20px; }
+header { display: flex; flex-direction: column; gap: 6px; }
+.eyebrow { font-size: 12px; letter-spacing: 0.09em; text-transform: uppercase; color: var(--muted); font-weight: 600; }
+h1 { font-family: var(--font-display); font-weight: 600; font-size: clamp(26px, 4vw, 36px); line-height: 1.1; margin: 0; text-wrap: balance; }
+h2 { font-family: var(--font-display); font-size: 16px; font-weight: 600; margin: 0; }
+.lede { margin: 0; color: var(--muted); max-width: 65ch; }
+
+/* viewport */
+.viewport { position: relative; background: var(--sky); border-radius: 12px; overflow: hidden; height: 560px; border: 1px solid var(--line); }
+@media (max-width: 700px) { .viewport { height: 420px; } }
+#scene { display: block; width: 100%; height: 100%; touch-action: none; cursor: grab; }
+#scene:active { cursor: grabbing; }
+.hud { position: absolute; left: 12px; top: 12px; background: var(--sky-panel); border: 1px solid var(--sky-line); border-radius: 8px; padding: 10px 12px; color: var(--sky-fg); min-width: 190px; pointer-events: none; }
+.hud .clock { font-family: var(--font-display); font-size: 24px; font-weight: 600; font-variant-numeric: tabular-nums; line-height: 1.1; }
+.hud .sub { font-size: 12px; color: var(--sky-text); }
+.bar { height: 4px; background: var(--sky-line); border-radius: 2px; margin-top: 8px; overflow: hidden; }
+.bar i { display: block; height: 100%; width: 0; background: var(--sky-accent); }
+.views { position: absolute; right: 12px; top: 12px; display: flex; gap: 0; background: var(--sky-panel); border: 1px solid var(--sky-line); border-radius: 8px; overflow: hidden; }
+.views button { background: transparent; border: 0; border-right: 1px solid var(--sky-line); color: var(--sky-fg); font: inherit; font-size: 13px; padding: 7px 11px; cursor: pointer; }
+.views button:last-child { border-right: 0; }
+.views button[aria-pressed="true"] { background: rgba(240, 169, 59, 0.25); font-weight: 600; }
+.key { position: absolute; left: 12px; bottom: 12px; right: 12px; display: flex; flex-wrap: wrap; gap: 4px 14px; font-size: 12px; color: var(--sky-text); pointer-events: none; }
+.key span { display: inline-flex; align-items: center; gap: 6px; }
+.key i { width: 8px; height: 8px; border-radius: 50%; display: inline-block; }
+.fallback { position: absolute; inset: 0; display: flex; align-items: center; justify-content: center; padding: 24px; color: var(--sky-fg); text-align: center; }
+
+.lower { display: grid; grid-template-columns: 320px minmax(0, 1fr); gap: 20px; align-items: start; }
+@media (max-width: 860px) { .lower { grid-template-columns: minmax(0, 1fr); } }
+.card { background: var(--surface); border: 1px solid var(--line); border-radius: 10px; padding: 18px; display: flex; flex-direction: column; gap: 16px; min-width: 0; }
+.group { display: flex; flex-direction: column; gap: 8px; }
+.group-title { font-size: 12px; letter-spacing: 0.08em; text-transform: uppercase; color: var(--muted); font-weight: 600; }
+.presets { display: grid; grid-template-columns: 1fr 1fr; gap: 6px; }
+button { font: inherit; color: var(--fg); cursor: pointer; }
+.chip { background: transparent; border: 1px solid var(--line); border-radius: 6px; padding: 6px 8px; text-align: left; font-size: 13px; line-height: 1.25; }
+.chip small { display: block; color: var(--muted); font-size: 11.5px; }
+.chip:hover { border-color: var(--muted); }
+.chip[aria-pressed="true"] { border-color: var(--accent); background: var(--accent-soft); }
+.field { display: flex; flex-direction: column; gap: 2px; }
+.field-head { display: flex; justify-content: space-between; align-items: baseline; gap: 8px; font-size: 13.5px; }
+.field-head output { font-variant-numeric: tabular-nums; font-weight: 600; white-space: nowrap; }
+input[type="range"] { width: 100%; accent-color: var(--accent); margin: 4px 0; }
+.check { display: flex; align-items: center; gap: 8px; font-size: 13.5px; }
+.check input { accent-color: var(--accent); width: 16px; height: 16px; margin: 0; }
+.disabled { opacity: 0.45; }
+.transport { display: flex; gap: 8px; }
+.btn { border: 1px solid var(--line); background: transparent; border-radius: 6px; padding: 8px 14px; font-weight: 600; font-size: 14px; }
+.btn.primary { background: var(--accent); border-color: var(--accent); color: var(--surface); flex: 1; }
+.btn:hover { border-color: var(--muted); }
+:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+
+.table-wrap { overflow-x: auto; }
+table { border-collapse: collapse; width: 100%; font-size: 14px; }
+th { text-align: left; font-size: 11.5px; letter-spacing: 0.07em; text-transform: uppercase; color: var(--muted); font-weight: 600; padding: 0 12px 8px 0; white-space: nowrap; }
+td { padding: 9px 12px 9px 0; border-top: 1px solid var(--line); vertical-align: middle; font-variant-numeric: tabular-nums; white-space: nowrap; }
+td small { color: var(--muted); display: block; font-size: 12px; }
+td.num { font-family: var(--font-display); font-weight: 600; font-size: 15px; }
+.pill { display: inline-block; border-radius: 999px; padding: 2px 10px; font-size: 12.5px; font-weight: 600; border: 1px solid var(--line); color: var(--muted); }
+.pill.warm { border-color: var(--accent); color: var(--accent); background: var(--accent-soft); }
+.pill.done { border-color: var(--good); color: var(--good); background: var(--good-soft); }
+.hint { margin: 0; font-size: 13px; color: var(--muted); max-width: 65ch; }
+
+.notes { display: grid; grid-template-columns: repeat(auto-fit, minmax(280px, 1fr)); gap: 22px; border-top: 1px solid var(--line); padding-top: 20px; }
+.notes p { margin: 6px 0 0; color: var(--muted); max-width: 65ch; font-size: 14px; }
+code { font-family: ui-monospace, "SF Mono", Menlo, Consolas, monospace; font-size: 0.92em; }
+</style>
+
+<div class="page">
+  <header>
+    <div class="eyebrow">Year 3 computing project · the building blocks of planet formation</div>
+    <h1>A protoplanetary disc, from dust to planets</h1>
+    <p class="lede">A 3D model of the flared gas disc around a one solar mass star. Dust settles towards the midplane at every radius according to the project's advection–diffusion solver. Where the midplane dust-to-gas ratio passes 1, planetesimals form and gather into a planet.</p>
+  </header>
+
+  <div class="viewport">
+    <canvas id="scene" aria-label="3D view of a protoplanetary disc: a central star, blue gas, amber dust and forming planets. Drag to rotate, scroll or pinch to zoom."></canvas>
+    <div class="hud">
+      <div class="clock" id="clock">0 yr</div>
+      <div class="sub" id="clockSub">of the disc's 1 Myr lifetime</div>
+      <div class="bar"><i id="barFill"></i></div>
+    </div>
+    <div class="views" id="views">
+      <button type="button" data-view="tilt" aria-pressed="true">Tilted</button><button type="button" data-view="edge">Edge-on</button><button type="button" data-view="top">Top-down</button>
+    </div>
+    <div class="key">
+      <span><i style="background:#6f8cff"></i>gas</span>
+      <span><i style="background:#ffb050"></i>dust grains</span>
+      <span><i style="background:#d8cbb8"></i>planetesimals</span>
+      <span>Drag to rotate · scroll or pinch to zoom</span>
+    </div>
+    <div class="fallback" id="fallback" hidden>This browser could not start WebGL, so the 3D view is unavailable. The readout table below still runs.</div>
+  </div>
+
+  <div class="lower">
+    <form class="card" id="controls" autocomplete="off">
+      <div class="group">
+        <div class="group-title">Scenarios</div>
+        <div class="presets" id="presets">
+          <button type="button" class="chip" data-preset="p1">1 µm, calm disc<small>no turbulence</small></button>
+          <button type="button" class="chip" data-preset="p2">1 µm, turbulent<small>α = 10⁻⁴</small></button>
+          <button type="button" class="chip" data-preset="p3">1 mm grains<small>α = 10⁻⁴</small></button>
+          <button type="button" class="chip" data-preset="p4">10 cm pebbles<small>α = 10⁻⁴</small></button>
+          <button type="button" class="chip" data-preset="p5">1 m boulders<small>α = 10⁻⁴</small></button>
+          <button type="button" class="chip" data-preset="p6">1 cm, quiet disc<small>α = 10⁻⁶</small></button>
+        </div>
+      </div>
+      <div class="group">
+        <div class="group-title">Change while it runs</div>
+        <label class="field" for="inA">
+          <span class="field-head"><span>Grain size a</span><output id="outA" for="inA"></output></span>
+          <input type="range" id="inA" min="0" max="1000" step="1">
+        </label>
+        <label class="check" for="inTurb"><input type="checkbox" id="inTurb"> Turbulent diffusion</label>
+        <label class="field" for="inAlpha" id="alphaField">
+          <span class="field-head"><span>Strength α</span><output id="outAlpha" for="inAlpha"></output></span>
+          <input type="range" id="inAlpha" min="0" max="1000" step="1">
+        </label>
+      </div>
+      <div class="group">
+        <div class="group-title">View and run</div>
+        <label class="field" for="inExag">
+          <span class="field-head"><span>Vertical stretch</span><output id="outExag" for="inExag"></output></span>
+          <input type="range" id="inExag" min="1" max="5" step="0.5" value="2">
+        </label>
+        <label class="field" for="inSpeed">
+          <span class="field-head"><span>Clock speed</span><output id="outSpeed" for="inSpeed"></output></span>
+          <input type="range" id="inSpeed" min="-3" max="6" step="0.5" value="0">
+        </label>
+        <div class="transport">
+          <button type="button" class="btn primary" id="btnPlay">Pause</button>
+          <button type="button" class="btn" id="btnReset">Restart</button>
+        </div>
+      </div>
+    </form>
+
+    <div class="card">
+      <h2>What the solver says at each radius</h2>
+      <div class="table-wrap">
+        <table>
+          <thead><tr><th>Radius</th><th>Midplane ε</th><th>Dust layer</th><th>St₀</th><th>Steady ε, exact</th><th>Status</th></tr></thead>
+          <tbody id="rows"></tbody>
+        </table>
+      </div>
+      <p class="hint">ε is the midplane dust-to-gas ratio; it starts at 0.01 everywhere. The dust layer is the r.m.s. height of the dust in gas scale heights H. "Steady ε, exact" is the analytic balance between settling and turbulence that the solver should approach. With turbulence, ε passes 1 only when St₀/α is about 10⁴, which squeezes the dust into a layer 100 times thinner than the gas.</p>
+      <p class="hint">No planet is drawn at 100 AU. Dust can still reach ε &gt; 1 there and make a planetesimal belt, but building a planet from planetesimals takes a time that scales roughly as 1/(Σ<sub>dust</sub>Ω), which in this disc grows as R<sup>3.25</sup>. That is about 17,000 times longer at 100 AU than at 5 AU, far beyond the disc's 1 Myr lifetime.</p>
+    </div>
+  </div>
+
+  <section class="notes">
+    <div>
+      <h2>Taken from the project</h2>
+      <p>The star is 2×10³⁰ kg. Temperature follows 264 K (R/1 AU)<sup>−1/2</sup> and midplane gas density 5×10⁻⁷ kg m⁻³ (R/1 AU)<sup>−3</sup>, so the scale height H = c<sub>s</sub>/Ω flares outwards: H/R is 0.035 at 1 AU and 0.11 at 100 AU. Gas sits in a Gaussian of width H.</p>
+      <p>At 5, 10, 20, 30 and 100 AU the page solves the project's advection–diffusion equation with the same scheme as the corrected <code>dust_functions.py</code> and <code>diffusion_functions.py</code>: first-order upwind settling and conservative diffusion, with zero flux through the midplane and the top. To resolve dust layers as thin as 0.01 H it uses 200 cells that are finer near the midplane and takes the diffusion step implicitly. Those five runs produce the table and decide when ε passes 1. A run lasts 20 Myr, well past the 1 Myr a real disc survives; each radius is held fixed after 12 response times, 12 / (St₀ + α), once it has stopped changing.</p>
+    </div>
+    <div>
+      <h2>Added for the picture</h2>
+      <p>Each amber grain follows the same settling velocity and a random walk matched to α, at its own radius. Radii are drawn compressed (as R<sup>0.6</sup>) so 5 AU and 100 AU fit in one view, heights can be stretched, and the orbital motion is slowed and not tied to the clock.</p>
+      <p>The project's model ends when ε passes 1. What follows here is a sketch of the accepted sequence: the streaming instability makes planetesimals, they collide and merge into a protoplanet, and the planet clears a gap. Its timing on screen is not calculated.</p>
+    </div>
+  </section>
+</div>
+
+<script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/controls/OrbitControls.js"></script>
+<script>
+/*SOLVER-START*/
+// Disc model from dust_functions.py; the same finite-volume scheme as the project code
+// (first-order upwind settling, conservative diffusion, zero flux at the midplane and top),
+// here on a grid that is finer near the midplane, with the diffusion step taken implicitly.
+const G = 6.67430e-11, M_STAR = 2.0e30, AU = 1.5e11;
+const K_B = 1.380649e-23, M_H = 1.6735575e-27, RHO_IN = 1000.0;
+const YEAR = 365.25 * 24 * 3600.0;
+const Z_MAX = 3.0;
+
+function discProps(R) {
+  const T = 264.0 * Math.pow(R, -0.5);
+  const rho0 = 5.0e-7 * Math.pow(R, -3.0);
+  const cs = Math.sqrt(K_B * T / (2.0 * M_H));
+  const Omega = Math.sqrt(G * M_STAR / Math.pow(R * AU, 3));
+  return { T, rho0, cs, Omega, H: cs / Omega };
+}
+// midplane Stokes number per metre of grain size: St0 = Omega * t_s(z=0)
+function stokesPerMetre(R) {
+  const d = discProps(R);
+  return d.Omega * Math.sqrt(Math.PI / 8.0) * RHO_IN / (d.rho0 * d.cs);
+}
+// analytic steady-state midplane dust-to-gas ratio (mass conserved inside [0, Z_MAX])
+function steadyEpsMid(St0, alpha) {
+  const S = St0 / alpha, nq = 40000, h = Z_MAX / nq;
+  let Id = 0, Ig = 0;
+  for (let i = 0; i <= nq; i++) {
+    const zz = i * h, w = (i === 0 || i === nq) ? 0.5 : 1;
+    Id += w * Math.exp(-S * Math.expm1(0.5 * zz * zz) - 0.5 * zz * zz);
+    Ig += w * Math.exp(-0.5 * zz * zz);
+  }
+  return 0.01 * Ig / Id;
+}
+function makeRing(R, N) {
+  const d = discProps(R), St1 = stokesPerMetre(R), STRETCH = 6;
+  const zf = new Float64Array(N + 1), zc = new Float64Array(N), dz = new Float64Array(N);
+  const rhoG = new Float64Array(N), rhoGf = new Float64Array(N + 1), uf = new Float64Array(N + 1);
+  const rho = new Float64Array(N), F = new Float64Array(N + 1), dp = new Float64Array(N);
+  const sub = new Float64Array(N), cp = new Float64Array(N), piv = new Float64Array(N);
+  for (let j = 0; j <= N; j++) { zf[j] = Z_MAX * Math.sinh(STRETCH * j / N) / Math.sinh(STRETCH); rhoGf[j] = Math.exp(-0.5 * zf[j] * zf[j]); }
+  for (let j = 0; j < N; j++) { zc[j] = 0.5 * (zf[j] + zf[j + 1]); dz[j] = zf[j + 1] - zf[j]; rhoG[j] = Math.exp(-0.5 * zc[j] * zc[j]); }
+  const ring = { R, N, zc, dz, rhoG, rho, St0: 0, alpha: 0, dt: 1, t: 0, since: 0,
+    omegaYr: d.Omega * YEAR, hOverR: d.H / (R * AU) };
+  ring.reset = function () {
+    for (let j = 0; j < N; j++) rho[j] = 0.01 * rhoG[j];
+    ring.t = 0; ring.since = 0;
+  };
+  ring.set = function (a, alpha) {
+    ring.St0 = St1 * a; ring.alpha = alpha;
+    let dt = 1e9;
+    for (let j = 0; j < N; j++) {
+      uf[j] = -zf[j] * ring.St0 / rhoGf[j];           // velocity on the lower face of cell j
+      if (j > 0) dt = Math.min(dt, 0.4 * dz[j] / -uf[j]);
+    }
+    if (alpha > 0) dt = Math.min(dt, 0.02 / alpha);
+    ring.dt = dt;
+    if (alpha > 0) {
+      // backward-Euler diffusion: tridiagonal system, factorised once per parameter change
+      const L = j => (j <= 0 || j >= N) ? 0 : dt * alpha * rhoGf[j] / (zc[j] - zc[j - 1]);
+      for (let j = 0; j < N; j++) {
+        const a_ = j > 0 ? -L(j) / (dz[j] * rhoG[j - 1]) : 0;
+        const b_ = 1 + (L(j + 1) + L(j)) / (dz[j] * rhoG[j]);
+        const c_ = j < N - 1 ? -L(j + 1) / (dz[j] * rhoG[j + 1]) : 0;
+        sub[j] = a_;
+        piv[j] = j > 0 ? b_ - a_ * cp[j - 1] : b_;
+        cp[j] = c_ / piv[j];
+      }
+    }
+    ring.since = 0;
+  };
+  ring.step = function (n) {
+    const dt = ring.dt, alpha = ring.alpha;
+    for (let k = 0; k < n; k++) {
+      for (let j = 0; j < N; j++) F[j] = uf[j] * rho[j];   // F[0] = 0 at the midplane
+      F[N] = 0;                                            // nothing settles in from above
+      for (let j = 0; j < N; j++) rho[j] -= dt / dz[j] * (F[j + 1] - F[j]);
+      if (alpha > 0) {
+        dp[0] = rho[0] / piv[0];
+        for (let j = 1; j < N; j++) dp[j] = (rho[j] - sub[j] * dp[j - 1]) / piv[j];
+        rho[N - 1] = dp[N - 1];
+        for (let j = N - 2; j >= 0; j--) rho[j] = dp[j] - cp[j] * rho[j + 1];
+      }
+    }
+    ring.t += n * dt; ring.since += n * dt;
+  };
+  ring.epsMid = () => rho[0] / rhoG[0];
+  ring.mass = () => { let m = 0; for (let j = 0; j < N; j++) m += rho[j] * dz[j]; return m; };
+  ring.dustHeight = () => {
+    let m = 0, m2 = 0;
+    for (let j = 0; j < N; j++) { m += rho[j] * dz[j]; m2 += rho[j] * dz[j] * zc[j] * zc[j]; }
+    return Math.sqrt(m2 / m);
+  };
+  ring.reset();
+  return ring;
+}
+/*SOLVER-END*/
+
+// ---------- formatting ----------
+const SUP = { "-": "⁻", 0: "⁰", 1: "¹", 2: "²", 3: "³", 4: "⁴", 5: "⁵", 6: "⁶", 7: "⁷", 8: "⁸", 9: "⁹" };
+const sup = n => String(n).split("").map(ch => SUP[ch]).join("");
+function sig(v, n) { return String(parseFloat(v.toPrecision(n))); }
+function fmtNum(v, n = 3) {
+  if (v === 0) return "0";
+  const av = Math.abs(v);
+  if (av >= 0.01 && av < 10000) return sig(v, n);
+  const e = Math.floor(Math.log10(av));
+  const m = sig(v / Math.pow(10, e), n);
+  return (m === "1" ? "" : m + "×") + "10" + sup(e);
+}
+function fmtTime(yr) {
+  if (yr < 1000) return sig(yr, 3) + " yr";
+  if (yr < 1e6) return sig(yr / 1e3, 3) + " kyr";
+  return sig(yr / 1e6, 3) + " Myr";
+}
+function fmtGrain(a) {
+  if (a < 1e-3) return sig(a * 1e6, 2) + " µm";
+  if (a < 1e-2) return sig(a * 1e3, 2) + " mm";
+  if (a < 1) return sig(a * 1e2, 2) + " cm";
+  return sig(a, 2) + " m";
+}
+
+// ---------- model state ----------
+const $ = id => document.getElementById(id);
+const T_END = 2e7;            // length of a run in years
+const T_DISC = 1e6;           // disc lifetime in years
+const N_GRID = 200;
+const RINGS = [
+  { R: 5, name: "Jupiter's orbit", planet: true, color: 0xd9a066, size: 0.42, labelAt: 0.35 },
+  { R: 10, name: "Saturn's orbit", planet: true, color: 0xe6d29c, size: 0.36, labelAt: 1.3 },
+  { R: 20, name: "Uranus's orbit", planet: true, color: 0x9fe0e0, size: 0.27, labelAt: 2.2 },
+  { R: 30, name: "Neptune's orbit", planet: true, color: 0x5078ee, size: 0.27, labelAt: 3.3 },
+  { R: 100, name: "outer disc, as observed", planet: false, color: 0, size: 0, labelAt: 4.4 }
+];
+const PRESETS = {
+  p1: { a: 1e-6, turb: false, alpha: 1e-4 },
+  p2: { a: 1e-6, turb: true, alpha: 1e-4 },
+  p3: { a: 1e-3, turb: true, alpha: 1e-4 },
+  p4: { a: 1e-1, turb: true, alpha: 1e-4 },
+  p5: { a: 1, turb: true, alpha: 1e-4 },
+  p6: { a: 1e-2, turb: true, alpha: 1e-6 }
+};
+const state = { a: 1e-2, turb: true, alpha: 1e-6, exag: 2, speed: 1, preset: "p6" };
+const reduceMotion = window.matchMedia && window.matchMedia("(prefers-reduced-motion: reduce)").matches;
+let running = !reduceMotion, finished = false, dirty = true, tYears = 0, frameNo = 0;
+
+const dispR = R => Math.pow(R, 0.6);       // compressed radial scale for drawing
+const R_IN = 2, R_OUT = 110;
+const visOmega = R => 0.35 * Math.pow(R / 5, -1.5);   // on-screen orbital rate, rad/s
+
+RINGS.forEach(r => { r.sim = makeRing(r.R, N_GRID); r.stage = 0; r.timer = 0; r.gap = 0; r.formedAt = null; r.phi = Math.random() * 6.283; });
+const alphaNow = () => state.turb ? state.alpha : 0;
+function applyParams() { RINGS.forEach(r => r.sim.set(state.a, alphaNow())); dirty = true; }
+const frozen = s => s.since > 12 / (s.St0 + s.alpha);
+
+function gauss() {
+  let u = 0; while (u === 0) u = Math.random();
+  return Math.sqrt(-2 * Math.log(u)) * Math.cos(2 * Math.PI * Math.random());
+}
+
+// ---------- particles ----------
+function makeCloud(n) {
+  const c = { n, R: new Float32Array(n), d: new Float32Array(n), hd: new Float32Array(n), phi: new Float32Array(n),
+    om: new Float32Array(n), zh: new Float32Array(n), sgn: new Float32Array(n), omYr: new Float32Array(n),
+    st1: new Float32Array(n), ring: new Int8Array(n), w: new Float32Array(n), b: new Float32Array(n),
+    pos: new Float32Array(3 * n), col: new Float32Array(3 * n) };
+  const d0 = dispR(R_IN), d1 = dispR(R_OUT);
+  for (let i = 0; i < n; i++) {
+    const d = d0 + Math.random() * (d1 - d0), R = Math.pow(d, 1 / 0.6), p = discProps(R);
+    c.R[i] = R; c.d[i] = d; c.hd[i] = p.H / (R * AU) * d;
+    c.phi[i] = Math.random() * 6.2832; c.om[i] = visOmega(R);
+    c.sgn[i] = Math.random() < 0.5 ? -1 : 1; c.omYr[i] = p.Omega * YEAR; c.st1[i] = stokesPerMetre(R);
+    c.b[i] = 0.55 + 0.45 * Math.random();
+    c.ring[i] = -1;
+    RINGS.forEach((r, k) => {
+      if (!r.planet) return;
+      const x = (R - r.R) / (0.13 * r.R), w = Math.exp(-0.5 * x * x);
+      if (w > 0.02 && w > c.w[i]) { c.ring[i] = k; c.w[i] = w; }
+    });
+  }
+  return c;
+}
+function seedHeights(c) {
+  for (let i = 0; i < c.n; i++) { let v; do { v = Math.abs(gauss()); } while (v >= Z_MAX); c.zh[i] = v; }
+}
+const dust = makeCloud(15000), gas = makeCloud(7000);
+seedHeights(dust); seedHeights(gas);
+
+function settleDust(dtYears) {
+  const al = alphaNow(), a = state.a, z = dust.zh;
+  for (let i = 0; i < dust.n; i++) {
+    const rate = al + dust.st1[i] * a * Math.exp(0.5 * z[i] * z[i]);
+    const e = Math.exp(-rate * dust.omYr[i] * dtYears);
+    let v = z[i] * e;
+    if (al > 0) v += Math.sqrt(al / rate * (1 - e * e)) * gauss();
+    v = Math.abs(v);
+    if (v > Z_MAX) v = Math.abs(2 * Z_MAX - v);
+    z[i] = v;
+  }
+}
+function placeCloud(c, dtWall) {
+  const ex = state.exag, pos = c.pos;
+  for (let i = 0; i < c.n; i++) {
+    c.phi[i] += c.om[i] * dtWall;
+    const d = c.d[i], k = 3 * i;
+    pos[k] = d * Math.cos(c.phi[i]);
+    pos[k + 1] = c.sgn[i] * c.zh[i] * c.hd[i] * ex;
+    pos[k + 2] = d * Math.sin(c.phi[i]);
+  }
+}
+function colourDust() {
+  const col = dust.col;
+  for (let i = 0; i < dust.n; i++) {
+    const g = dust.ring[i] >= 0 ? 1 - 0.95 * RINGS[dust.ring[i]].gap * dust.w[i] : 1, b = dust.b[i] * g, k = 3 * i;
+    col[k] = b; col[k + 1] = 0.64 * b; col[k + 2] = 0.27 * b;
+  }
+}
+
+// ---------- simulation step ----------
+const BUDGET = 400000;   // grid-cell updates per frame
+function simulate() {
+  let dtY = Math.min(state.speed * 400, T_END - tYears);
+  let cost = 0;
+  for (const r of RINGS) {
+    const s = r.sim;
+    if (!frozen(s)) cost += Math.max(0, (s.omegaYr * (tYears + dtY) - s.t) / s.dt) * N_GRID;
+  }
+  if (cost > BUDGET) dtY *= BUDGET / cost;
+  tYears += dtY;
+  const t0 = performance.now();
+  for (const r of RINGS) {
+    const s = r.sim, target = s.omegaYr * tYears;
+    if (frozen(s)) { s.t = target; continue; }
+    let need = Math.ceil((target - s.t) / s.dt);
+    while (need > 0 && performance.now() - t0 < 12) { const n = Math.min(need, 200); s.step(n); need -= n; }
+    if (r.stage === 0 && s.epsMid() > 1) { r.stage = 1; r.timer = 0; r.formedAt = tYears; }
+  }
+  settleDust(dtY);
+  if (tYears >= T_END) { finished = true; syncUI(); }
+}
+function advanceStages(dtWall) {
+  let changed = false;
+  for (const r of RINGS) {
+    if (r.stage === 1) {
+      r.timer += dtWall / 5;
+      if (r.timer >= 1) { if (r.planet) { r.stage = 2; r.timer = 0; } else r.timer = 1; }
+    } else if (r.stage === 2) {
+      r.timer += dtWall / 8;
+      r.gap = Math.min(1, r.timer); changed = true;
+      if (r.timer >= 1) { r.stage = 3; r.gap = 1; }
+    }
+    r.phi += visOmega(r.R) * dtWall;
+  }
+  return changed;
+}
+function restart() {
+  tYears = 0; finished = false;
+  RINGS.forEach(r => { r.sim.reset(); r.stage = 0; r.timer = 0; r.gap = 0; r.formedAt = null; });
+  applyParams();
+  seedHeights(dust); colourDust();
+  if (three) three.dustGeo.attributes.color.needsUpdate = true;
+  dirty = true; syncUI();
+}
+
+// ---------- 3D scene ----------
+let three = null;
+function softDot() {
+  const c = document.createElement("canvas"); c.width = c.height = 64;
+  const g = c.getContext("2d"), grd = g.createRadialGradient(32, 32, 0, 32, 32, 32);
+  grd.addColorStop(0, "rgba(255,255,255,1)"); grd.addColorStop(0.35, "rgba(255,255,255,0.55)"); grd.addColorStop(1, "rgba(255,255,255,0)");
+  g.fillStyle = grd; g.fillRect(0, 0, 64, 64);
+  return new THREE.CanvasTexture(c);
+}
+function textSprite(text) {
+  const c = document.createElement("canvas"); c.width = 256; c.height = 64;
+  const g = c.getContext("2d");
+  g.font = "600 30px Inter, system-ui, sans-serif"; g.textAlign = "center"; g.textBaseline = "middle";
+  g.fillStyle = "#c9cdea"; g.fillText(text, 128, 34);
+  const m = new THREE.SpriteMaterial({ map: new THREE.CanvasTexture(c), transparent: true, depthTest: false });
+  const s = new THREE.Sprite(m); s.scale.set(2.8, 0.7, 1);
+  return s;
+}
+function initThree() {
+  const canvas = $("scene");
+  const renderer = new THREE.WebGLRenderer({ canvas, antialias: true });
+  renderer.setPixelRatio(Math.min(window.devicePixelRatio || 1, 2));
+  renderer.setClearColor(0x05060f, 1);
+  const scene = new THREE.Scene();
+  const camera = new THREE.PerspectiveCamera(40, 2, 0.1, 400);
+  const controls = new THREE.OrbitControls(camera, canvas);
+  controls.enablePan = false; controls.minDistance = 4; controls.maxDistance = 90;
+  controls.addEventListener("change", () => { dirty = true; });
+  const dot = softDot();
+
+  // background stars
+  const sp = new Float32Array(900 * 3);
+  for (let i = 0; i < 900; i++) {
+    const u = Math.random() * 2 - 1, t = Math.random() * 6.283, q = Math.sqrt(1 - u * u), rr = 150;
+    sp[3 * i] = rr * q * Math.cos(t); sp[3 * i + 1] = rr * u; sp[3 * i + 2] = rr * q * Math.sin(t);
+  }
+  const sg = new THREE.BufferGeometry(); sg.setAttribute("position", new THREE.BufferAttribute(sp, 3));
+  scene.add(new THREE.Points(sg, new THREE.PointsMaterial({ color: 0x8c93b8, size: 1.1, sizeAttenuation: false })));
+
+  // star
+  scene.add(new THREE.Mesh(new THREE.SphereGeometry(0.38, 24, 16), new THREE.MeshBasicMaterial({ color: 0xfff1d0 })));
+  const glow = new THREE.Sprite(new THREE.SpriteMaterial({ map: dot, color: 0xffd9a0, transparent: true, blending: THREE.AdditiveBlending, depthWrite: false }));
+  glow.scale.set(5, 5, 1); scene.add(glow);
+  scene.add(new THREE.PointLight(0xfff0d8, 1.6, 0, 0));
+  scene.add(new THREE.AmbientLight(0x404868, 0.9));
+
+  // gas and dust
+  const gasGeo = new THREE.BufferGeometry();
+  gasGeo.setAttribute("position", new THREE.BufferAttribute(gas.pos, 3));
+  scene.add(new THREE.Points(gasGeo, new THREE.PointsMaterial({ map: dot, color: 0x5874ff, size: 0.75, transparent: true, opacity: 0.11, blending: THREE.AdditiveBlending, depthWrite: false })));
+  const dustGeo = new THREE.BufferGeometry();
+  dustGeo.setAttribute("position", new THREE.BufferAttribute(dust.pos, 3));
+  dustGeo.setAttribute("color", new THREE.BufferAttribute(dust.col, 3));
+  scene.add(new THREE.Points(dustGeo, new THREE.PointsMaterial({ map: dot, vertexColors: true, size: 0.15, transparent: true, opacity: 0.85, blending: THREE.AdditiveBlending, depthWrite: false })));
+
+  // rings, labels, planetesimals, planets
+  const PN = 260;
+  RINGS.forEach(r => {
+    const d = dispR(r.R), pts = [];
+    for (let k = 0; k < 160; k++) { const t = k / 160 * 6.2832; pts.push(new THREE.Vector3(d * Math.cos(t), 0, d * Math.sin(t))); }
+    r.line = new THREE.LineLoop(new THREE.BufferGeometry().setFromPoints(pts), new THREE.LineBasicMaterial({ color: 0x8890c0, transparent: true, opacity: 0.35 }));
+    scene.add(r.line);
+    const lab = textSprite(r.R + " AU");
+    lab.position.set((d + 0.2) * Math.cos(r.labelAt), 0.75, (d + 0.2) * Math.sin(r.labelAt)); scene.add(lab);
+    r.pOff = new Float32Array(PN); r.pRel = new Float32Array(PN); r.pY = new Float32Array(PN); r.pPos = new Float32Array(PN * 3);
+    for (let k = 0; k < PN; k++) { r.pOff[k] = 0.07 * gauss(); r.pRel[k] = (Math.random() * 2 - 1) * Math.PI; r.pY[k] = 0.03 * gauss(); }
+    const pg = new THREE.BufferGeometry(); pg.setAttribute("position", new THREE.BufferAttribute(r.pPos, 3)); pg.setDrawRange(0, 0);
+    r.pGeo = pg;
+    r.pPoints = new THREE.Points(pg, new THREE.PointsMaterial({ map: dot, color: 0xd8cbb8, size: 0.26, transparent: true, opacity: 0.95, depthWrite: false }));
+    scene.add(r.pPoints);
+    if (r.planet) {
+      r.mesh = new THREE.Mesh(new THREE.SphereGeometry(r.size, 28, 18), new THREE.MeshStandardMaterial({ color: r.color, roughness: 0.75, metalness: 0 }));
+      r.mesh.visible = false; scene.add(r.mesh);
+    }
+  });
+  three = { renderer, scene, camera, controls, gasGeo, dustGeo, PN };
+  setView("tilt");
+}
+const VIEWS = { tilt: [0, 0.4, 0.92], edge: [0, 0.035, 1], top: [0, 1, 0.001] };
+function setView(name) {
+  if (!three) return;
+  const cv = $("scene"), aspect = cv.clientWidth / Math.max(1, cv.clientHeight);
+  const dist = 31 * Math.max(1, 1.75 / aspect), v = VIEWS[name], len = Math.hypot(v[0], v[1], v[2]);
+  three.camera.position.set(v[0] / len * dist, v[1] / len * dist, v[2] / len * dist);
+  three.controls.target.set(0, 0, 0); three.controls.update();
+  document.querySelectorAll("#views button").forEach(b => b.setAttribute("aria-pressed", String(b.dataset.view === name)));
+  dirty = true;
+}
+function resize() {
+  if (!three) return;
+  const cv = $("scene"), w = cv.clientWidth, h = cv.clientHeight;
+  if (!w || !h) return;
+  three.renderer.setSize(w, h, false);
+  three.camera.aspect = w / h; three.camera.updateProjectionMatrix();
+  dirty = true;
+}
+function updateBodies() {
+  const PN = three.PN, smooth = x => x * x * (3 - 2 * x);
+  for (const r of RINGS) {
+    let count = 0, shrink = 0;
+    if (r.stage === 1) count = Math.round(PN * Math.min(1, r.timer));
+    else if (r.stage === 2) { shrink = smooth(Math.min(1, r.timer)); count = Math.round(PN * (1 - 0.92 * shrink)); }
+    for (let k = 0; k < count; k++) {
+      const d = dispR(r.R * (1 + r.pOff[k] * (1 - shrink))), ph = r.phi + r.pRel[k] * Math.pow(1 - shrink, 1.5);
+      r.pPos[3 * k] = d * Math.cos(ph); r.pPos[3 * k + 1] = r.pY[k] * (1 - shrink); r.pPos[3 * k + 2] = d * Math.sin(ph);
+    }
+    r.pGeo.setDrawRange(0, count); r.pGeo.attributes.position.needsUpdate = true;
+    if (r.mesh) {
+      const sc = r.stage === 3 ? 1 : r.stage === 2 ? Math.max(0.05, smooth(Math.min(1, r.timer))) : 0;
+      r.mesh.visible = sc > 0;
+      if (sc > 0) { const d = dispR(r.R); r.mesh.scale.setScalar(sc); r.mesh.position.set(d * Math.cos(r.phi), 0, d * Math.sin(r.phi)); }
+    }
+  }
+}
+
+// ---------- readouts ----------
+function statusOf(r) {
+  if (r.stage === 3) return ['done', 'Planet formed'];
+  if (r.stage === 2) return ['warm', 'Protoplanet accreting'];
+  if (r.stage === 1) return ['warm', r.planet ? 'Planetesimals forming' : 'Planetesimal belt'];
+  return ['', r.sim.dustHeight() > 0.5 ? 'Dust lofted' : 'Dust settling'];
+}
+function buildRows() {
+  $("rows").innerHTML = RINGS.map((r, i) =>
+    '<tr><td>' + r.R + ' AU<small>' + r.name + '</small></td><td class="num" id="e' + i + '"></td><td id="h' + i + '"></td><td id="s' + i + '"></td><td id="a' + i + '"></td><td><span class="pill" id="p' + i + '"></span><small id="f' + i + '"></small></td></tr>').join("");
+}
+function drawReadouts() {
+  $("clock").textContent = fmtTime(tYears);
+  $("clockSub").textContent = finished ? "run complete at 20 Myr"
+    : tYears < T_DISC ? "of the disc's 1 Myr lifetime" : "past the disc's 1 Myr lifetime";
+  $("barFill").style.width = (100 * Math.min(1, tYears / T_DISC)).toFixed(2) + "%";
+  RINGS.forEach((r, i) => {
+    const st = statusOf(r);
+    $("e" + i).textContent = fmtNum(r.sim.epsMid(), 3);
+    $("h" + i).textContent = r.sim.dustHeight().toFixed(2) + " H";
+    $("s" + i).innerHTML = fmtNum(r.sim.St0, 2) + (r.sim.St0 > 1 ? "<small>above 1: outside the model's range</small>" : "");
+    $("a" + i).textContent = r.sim.alpha > 0 ? fmtNum(steadyEpsMid(r.sim.St0, r.sim.alpha), 3) : "none";
+    const p = $("p" + i); p.textContent = st[1]; p.className = "pill" + (st[0] ? " " + st[0] : "");
+    $("f" + i).textContent = r.formedAt === null ? "" : "ε > 1 after " + fmtTime(r.formedAt) + (r.formedAt > T_DISC ? ", too late for a 1 Myr disc" : "");
+  });
+}
+
+// ---------- controls ----------
+const toA = v => Math.pow(10, -6 + 6 * v / 1000), fromA = a => Math.round((Math.log10(a) + 6) / 6 * 1000);
+const toAl = v => Math.pow(10, -6 + 4 * v / 1000), fromAl = al => Math.round((Math.log10(al) + 6) * 250);
+function syncUI() {
+  $("inA").value = fromA(state.a); $("outA").textContent = fmtGrain(state.a);
+  $("inTurb").checked = state.turb;
+  $("inAlpha").value = fromAl(state.alpha); $("inAlpha").disabled = !state.turb;
+  $("alphaField").classList.toggle("disabled", !state.turb);
+  $("outAlpha").textContent = state.turb ? fmtNum(state.alpha, 2) : "off";
+  $("outExag").textContent = "×" + state.exag;
+  $("outSpeed").textContent = sig(state.speed, 2) + "×";
+  document.querySelectorAll("#presets .chip").forEach(b => b.setAttribute("aria-pressed", String(b.dataset.preset === state.preset)));
+  $("btnPlay").textContent = finished ? "Run again" : (running ? "Pause" : "Play");
+}
+$("inA").addEventListener("input", e => { state.a = toA(+e.target.value); state.preset = null; applyParams(); syncUI(); });
+$("inAlpha").addEventListener("input", e => { state.alpha = toAl(+e.target.value); state.preset = null; applyParams(); syncUI(); });
+$("inTurb").addEventListener("change", e => { state.turb = e.target.checked; state.preset = null; applyParams(); syncUI(); });
+$("inExag").addEventListener("input", e => { state.exag = +e.target.value; dirty = true; syncUI(); });
+$("inSpeed").addEventListener("input", e => { state.speed = Math.pow(2, +e.target.value); syncUI(); });
+$("presets").addEventListener("click", e => {
+  const b = e.target.closest("[data-preset]"); if (!b) return;
+  Object.assign(state, PRESETS[b.dataset.preset], { preset: b.dataset.preset });
+  restart();
+});
+$("views").addEventListener("click", e => { const b = e.target.closest("[data-view]"); if (b) setView(b.dataset.view); });
+$("btnPlay").addEventListener("click", () => {
+  if (finished) { restart(); running = true; } else running = !running;
+  dirty = true; syncUI();
+});
+$("btnReset").addEventListener("click", restart);
+$("controls").addEventListener("submit", e => e.preventDefault());
+
+// ---------- main loop ----------
+let lastWall = performance.now();
+function frame(now) {
+  const dtWall = Math.min(0.05, (now - lastWall) / 1000); lastWall = now;
+  frameNo++;
+  const live = running;
+  if (live) {
+    if (!finished) simulate();
+    if (advanceStages(dtWall)) { colourDust(); if (three) three.dustGeo.attributes.color.needsUpdate = true; }
+    dirty = true;
+  }
+  if (dirty) {
+    if (three) {
+      placeCloud(dust, live ? dtWall : 0); placeCloud(gas, live ? dtWall : 0);
+      three.dustGeo.attributes.position.needsUpdate = true; three.gasGeo.attributes.position.needsUpdate = true;
+      updateBodies();
+      three.renderer.render(three.scene, three.camera);
+    }
+    if (!live || frameNo % 6 === 0) drawReadouts();
+    dirty = false;
+  }
+  requestAnimationFrame(frame);
+}
+
+buildRows();
+applyParams();
+colourDust();
+try { initThree(); resize(); } catch (err) { three = null; $("fallback").hidden = false; }
+window.addEventListener("resize", resize);
+syncUI();
+drawReadouts();
+requestAnimationFrame(frame);
+</script>
