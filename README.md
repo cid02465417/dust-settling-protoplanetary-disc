@@ -4,6 +4,8 @@ Year 3 computing project: numerical simulation of the vertical settling of dust
 grains in a protoplanetary disc, using a first-order upwind advection scheme with
 optional turbulent diffusion.
 
+Open "Protoplanetary Disc 3D Model.html" for a visual simulation.
+
 Each folder corresponds to one section of the report. The folders are meant to run
 on their own, so shared modules (`dust_functions.py`, `diffusion_functions.py`) are
 duplicated across them. Run the main script in a folder from inside that folder
